@@ -1,4 +1,4 @@
-import { cn, getTechLogos } from '@/lib/utils'
+import { cn, getTechLogos } from '@/lib/actions/utils'
 import React from 'react'
 import Image from 'next/image'
 const DisplayTechIcons = async({techStack}:TechIconProps) => {
