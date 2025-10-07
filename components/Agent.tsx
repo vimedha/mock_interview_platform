@@ -1,6 +1,6 @@
 'use client'
 import Image from 'next/image'
-import { cn } from '@/lib/actions/utils';
+import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {vapi} from '@/lib/vapi.sdk';
