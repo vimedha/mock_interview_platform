@@ -47,12 +47,13 @@ async  function onSubmit(values: z.infer<typeof formSchema>) {
           password,
         })
         if(!result?.success){
-          toast.error(result?.message);
-          return;
+          // Allow sign up to continue even if server DB write fails (e.g., admin creds missing)
+          toast.warning(result?.message || 'Account created, but server could not save profile.');
+        } else {
+          toast.success('Account created successfully. Please sign in.');
         }
-        toast.success('Account created successfully. Please sign in.');
-
-        router.push('/sign-in')
+        router.replace('/sign-in')
+        router.refresh()
       }else{
         const{email,password}=values;
         const userCredential= await signInWithEmailAndPassword(auth,email,password);
@@ -61,11 +62,16 @@ async  function onSubmit(values: z.infer<typeof formSchema>) {
           toast.error('Sign in failed')
           return;
         }
-        await signIn({
+        const result = await signIn({
           email,idToken
         })
-       toast.success('Signed in successfully');
-       router.push('/')
+        if(!result?.success){
+          toast.error(result?.message || 'Sign in failed');
+          return;
+        }
+        toast.success('Signed in successfully');
+        router.replace('/')
+        router.refresh()
       }
       
     }catch(error){

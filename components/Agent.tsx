@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 import Image from 'next/image'
 import { cn } from '@/lib/actions/utils';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import {vapi} from '@/lib/vapi.sdk';
+import { useEffect, useRef, useState } from 'react';
 enum CallStatus {
   INACTIVE = 'INACTIVE',
   ACTIVE = 'ACTIVE',
@@ -21,38 +21,70 @@ const Agent = ({ userName, userId }: AgentProps) => {
   // Add state for call status (or set it as a variable)
   const [callStatus, setCallStatus] = useState<CallStatus>(CallStatus.INACTIVE);
   const [messages, setMessages]= useState<SavedMessage[]>([]);
+  const vapiRef = useRef<any>(null);
+
+  const supportsAudio = typeof navigator !== 'undefined'
+    && !!navigator.mediaDevices
+    && typeof navigator.mediaDevices.getUserMedia === 'function'
+    && typeof (globalThis as any).AudioContext !== 'undefined'
+    && (globalThis as any).isSecureContext !== false; // true for HTTPS and localhost
 useEffect(()=>{
-  const onCallStart=()=> setCallStatus(CallStatus.ACTIVE);
-  const onCallEnd=()=> setCallStatus(CallStatus.FINISHED);
-  const onMessage=(message: Message)=>{
-    if(message.type=== 'transcript' && message.transcriptType==='final'){
-      const newMessage = {role: message.role, content: message.transcript}
-      setMessages((prev)=>[...prev,newMessage])
+  let mounted = true;
+  (async () => {
+    // Lazy-load the SDK to avoid initializing audio on unsupported pages
+    const mod = await import('@/lib/vapi.sdk');
+    if (!mounted) return;
+    vapiRef.current = mod.vapi;
+
+    const onCallStart=()=> setCallStatus(CallStatus.ACTIVE);
+    const onCallEnd=()=> setCallStatus(CallStatus.FINISHED);
+    const onMessage=(message: Message)=>{
+      if(message.type=== 'transcript' && message.transcriptType==='final'){
+        const newMessage = {role: message.role, content: message.transcript}
+        setMessages((prev)=>[...prev,newMessage])
+      }
     }
-  }
-  const onSpeechStart=()=> setIsSpeaking(true);
-  const onSpeechEnd=()=> setIsSpeaking(false);
-  const onError=(error: Error)=> console.log('Error', error);
-  vapi.on('call-start',onCallStart);
-  vapi.on('call-end', onCallEnd);
-  vapi.on('message', onMessage);
-  vapi.on('speech-start', onSpeechStart);
-  vapi.on('speech-end', onSpeechEnd);
-  vapi.on('error', onError);
-  return ()=>{
-    vapi.off('call-start',onCallStart);
-    vapi.off('call-end', onCallEnd);
-    vapi.off('message', onMessage);
-    vapi.off('speech-start', onSpeechStart);
-    vapi.off('speech-end', onSpeechEnd);
-    vapi.off('error', onError);
-  }
-},[])
+    const onSpeechStart=()=> setIsSpeaking(true);
+    const onSpeechEnd=()=> setIsSpeaking(false);
+    const onError=(error: Error)=> console.log('Error', error);
+
+    const vapi = vapiRef.current;
+    if (!vapi) return;
+    vapi.on('call-start',onCallStart);
+    vapi.on('call-end', onCallEnd);
+    vapi.on('message', onMessage);
+    // Register speech events only if audio is supported
+    if (supportsAudio) {
+      vapi.on('speech-start', onSpeechStart);
+      vapi.on('speech-end', onSpeechEnd);
+    }
+    vapi.on('error', onError);
+
+    return () => {
+      const v = vapiRef.current;
+      if (!v) return;
+      v.off('call-start',onCallStart);
+      v.off('call-end', onCallEnd);
+      v.off('message', onMessage);
+      if (supportsAudio) {
+        v.off('speech-start', onSpeechStart);
+        v.off('speech-end', onSpeechEnd);
+      }
+      v.off('error', onError);
+    };
+  })();
+  return () => { mounted = false; };
+},[supportsAudio])
 useEffect(()=>{
   if(callStatus=== CallStatus.FINISHED) router.push('/');
 },[callStatus, router]);
 const handleCall=async()=>{
   setCallStatus(CallStatus.CONNECTING);
+  if (!vapiRef.current) {
+    const mod = await import('@/lib/vapi.sdk');
+    vapiRef.current = mod.vapi;
+  }
+  const vapi = vapiRef.current;
   await vapi.start(
     undefined,
     undefined,
@@ -68,7 +100,7 @@ const handleCall=async()=>{
 }
 const handleDisconnect=async()=>{
   setCallStatus(CallStatus.FINISHED);
-  vapi.stop();
+  if (vapiRef.current) vapiRef.current.stop();
 }
 const latestMessage=messages[messages.length-1]?.content;
 const isCallInactiveOrFinished=callStatus=== CallStatus.INACTIVE||callStatus=== CallStatus.FINISHED;
